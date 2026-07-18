@@ -7,6 +7,8 @@ A patient rotates an anatomical body, taps the muscles that hurt, and the doctor
 
 ![RehabMate](docs/preview.png)
 
+[▶ Watch a 16s demo](docs/rehabmate-demo.mp4) — rotate, tap muscles to mark pain, front/back views.
+
 ---
 
 ## What it does
