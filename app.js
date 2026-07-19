@@ -57,6 +57,10 @@ grid2.position.y = 0; grid2.material.transparent = true; grid2.material.opacity 
 // [name, side, x, y, z, rx, ry, rz]  (rx/ry/rz weight the zone's reach per axis)
 let mainMesh = null, vMus = null;
 const MAX_PINS = 20;
+const PAIN_TYPE_CONFIG = Object.freeze({
+  defaultType:'酸痛',
+  options:Object.freeze(['刺痛','酸痛','壓痛','隱隱作痛','走路痛','舉手痛','轉動痛','伸直痛'])
+});
 const PIN_COLORS = [
   0xe6194b,0x3cb44b,0xffa500,0x4363d8,0xf032e6,0x42d4f4,0xf58231,0x911eb4,0x469990,0xdcbeff,
   0x9a6324,0x800000,0xaaffc3,0x808000,0x000075,0xff69b4,0x00a8a8,0x7fdbff,0xb10dc9,0x2ecc40
@@ -138,7 +142,7 @@ function createPin(hit){
   group.position.copy(hit.point).addScaledVector(hit.normal,.006);
   group.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),hit.normal);
   scene.add(group);
-  pins.push({id,color,group,muscleIndex:hit.muscleIndex,painType:'酸痛'});
+  pins.push({id,color,group,muscleIndex:hit.muscleIndex,painType:PAIN_TYPE_CONFIG.defaultType});
   selectPin(id);
 }
 createPin.lastId=0;
@@ -185,6 +189,16 @@ const listEl = document.getElementById('list');
 const countEl = document.getElementById('count');
 const editorEl = document.getElementById('editor');
 const limitEl = document.getElementById('limitMessage');
+const painTypesEl = document.getElementById('painTypes');
+for(const type of PAIN_TYPE_CONFIG.options){
+  const button=document.createElement('button');
+  button.dataset.type=type; button.textContent=type;
+  button.onclick=()=>{
+    const pin=pins.find(candidate=>candidate.id===selectedPinId); if(!pin) return;
+    pin.painType=type; renderList();
+  };
+  painTypesEl.appendChild(button);
+}
 function renderList(showLimit=false){
   countEl.textContent = `${pins.length} / ${MAX_PINS}`;
   limitEl.style.display = showLimit||pins.length>=MAX_PINS?'block':'none';
@@ -208,10 +222,6 @@ function renderList(showLimit=false){
       button.classList.toggle('on',button.dataset.type===selected.painType));
   }
 }
-document.querySelectorAll('#painTypes button').forEach(button=>button.onclick=()=>{
-  const pin=pins.find(candidate=>candidate.id===selectedPinId); if(!pin) return;
-  pin.painType=button.dataset.type; renderList();
-});
 document.getElementById('deletePin').onclick=()=>{
   const index=pins.findIndex(pin=>pin.id===selectedPinId); if(index<0) return;
   scene.remove(pins[index].group); pins.splice(index,1);

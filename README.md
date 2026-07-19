@@ -40,7 +40,8 @@ Or drop the folder onto any static host (Vercel, Netlify, GitHub Pages, an intra
 ## How it works (for anyone extending it)
 
 - **Rendering:** [three.js](https://threejs.org) (loaded from a CDN via import-map). One `<script type="module">` in `index.html`, no bundler.
-- **Muscle regions:** the body is a single mesh. On load, every vertex is assigned to its nearest anatomical zone (see the `MUSCLES` array in `index.html`). A raycast places each pin at the exact surface hit and uses that zone for its label.
+- **Editing pain types:** update the single `PAIN_TYPE_CONFIG` definition in `app.js`; the right-side buttons are generated from it.
+- **Muscle regions:** the body is a single mesh. On load, every vertex is assigned to its nearest anatomical zone (see the `MUSCLES` array in `muscles.js`). A raycast places each pin at the exact surface hit and uses that zone for its label.
 - **Editing the muscle map:** each entry in `MUSCLES` is `[name, side, x, y, z, rx, ry, rz]` — a labelled zone centre plus per-axis reach. Move a centre or widen a radius and that region's coverage changes. Front zones use `z > 0`, back zones `z < 0`, which keeps front/back muscles independent.
 - **Swapping the model:** replace `assets/body.glb` with any single-mesh humanoid GLB and re-check the `MUSCLES` coordinates against its proportions.
 
