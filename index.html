@@ -44,6 +44,11 @@
   #panel.collapsed h2{margin-bottom:0}
   #panel.collapsed #collapseBtn{transform:rotate(-90deg)}
   #panel.collapsed #panelBody{display:none}
+  #modes{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:11px}
+  #modes button{padding:8px;border-radius:8px;border:1px solid var(--line);background:#fff;
+    color:var(--text);font-size:12px;cursor:pointer;letter-spacing:1px;transition:.15s}
+  #modes button:hover,#modes button.on{border-color:var(--accent);color:var(--accent);background:#eef3ff}
+  #modes button.on{font-weight:600}
   #list{display:flex;flex-direction:column;gap:7px;max-height:44vh;overflow-y:auto}
   #list::-webkit-scrollbar{width:5px}#list::-webkit-scrollbar-thumb{background:#cfd8e3;border-radius:3px}
   .row{display:flex;align-items:center;gap:10px;font-size:13px;padding:8px 10px;cursor:pointer;
@@ -52,6 +57,10 @@
   .row .swatch{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
   .row .nm{flex:1;color:var(--text)}
   .row .side{font-size:10.5px;color:var(--muted)}
+  .row.zone{cursor:default}
+  .row.zone:hover{border-color:var(--line);background:#f7f9fc}
+  .legend{margin-top:13px;display:flex;gap:14px;font-size:11px;color:var(--muted)}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
   #empty{font-size:12px;color:var(--muted);line-height:1.7;padding:6px 2px}
   #editor{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
   #editor.visible{display:block}
@@ -108,9 +117,13 @@
 </div>
 
 <div class="hud" id="panel">
-  <h2 id="panelHead">疼痛標記 <span class="count" id="count">0 / 20</span><span id="collapseBtn" aria-label="收合">▾</span></h2>
+  <h2 id="panelHead">疼痛標記 <span class="count" id="count">0</span><span id="collapseBtn" aria-label="收合">▾</span></h2>
   <div id="panelBody">
-  <div id="list"><div id="empty">點擊身體插入大頭針。<br>選取大頭針後設定疼痛類型。</div></div>
+  <div id="modes">
+    <button id="modeZone" class="on">區塊標記</button>
+    <button id="modePin">大頭針標記</button>
+  </div>
+  <div id="list"><div id="empty">點選身體任一部位標記疼痛。<br>再點一下 = 已緩解，第三下 = 清除。</div></div>
   <div id="editor">
     <h3 id="editorTitle">目前選取</h3>
     <div id="painTypes"></div>
@@ -118,6 +131,10 @@
   </div>
   <div id="limitMessage">最多只能放置 20 根大頭針。</div>
   <button id="clear">清除全部</button>
+  <div class="legend" id="zoneLegend">
+    <span><i style="background:#e23744"></i>疼痛</span>
+    <span><i style="background:#1fae67"></i>已緩解</span>
+  </div>
   </div>
 </div>
 
