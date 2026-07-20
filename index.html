@@ -32,8 +32,8 @@
   #brand p{margin-top:5px;font-size:11.5px;color:var(--muted);letter-spacing:2px}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-  /* right panel */
-  #panel{top:22px;right:20px;width:264px;background:var(--panel);
+  /* left panel（桌面靠左上，位於品牌標題下方） */
+  #panel{top:84px;left:20px;width:264px;max-height:calc(100vh - 104px);overflow-y:auto;background:var(--panel);
     border:1px solid var(--line);border-radius:14px;padding:16px 16px 14px;
     backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     box-shadow:0 10px 34px rgba(40,60,90,.12)}
@@ -57,18 +57,27 @@
   .row .swatch{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
   .row .nm{flex:1;color:var(--text)}
   .row .side{font-size:10.5px;color:var(--muted)}
-  .row.zone{cursor:default}
-  .row.zone:hover{border-color:var(--line);background:#f7f9fc}
+  .row.zone.selected{border-color:var(--accent);background:#eef3ff}
   .legend{margin-top:13px;display:flex;gap:14px;font-size:11px;color:var(--muted)}
   .legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px}
   #empty{font-size:12px;color:var(--muted);line-height:1.7;padding:6px 2px}
   #editor{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
   #editor.visible{display:block}
   #editor h3{font-size:12px;margin-bottom:9px;color:var(--text)}
-  #painTypes{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-  #painTypes button{padding:8px;border-radius:8px;border:1px solid var(--line);background:#fff;
-    color:var(--text);font-size:12px;cursor:pointer;transition:.15s}
+  #painTypes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  #painTypes button{padding:8px 2px;border-radius:8px;border:1px solid var(--line);background:#fff;
+    color:var(--text);font-size:11.5px;cursor:pointer;
+    transition:border-color .15s,color .15s,background .15s,transform 120ms cubic-bezier(0.23,1,0.32,1)}
   #painTypes button:hover,#painTypes button.on{border-color:var(--accent);color:var(--accent);background:#eef3ff}
+  #painTypes button:active{transform:scale(0.96)}
+  #scoreLabel{margin:11px 0 6px;font-size:10.5px;color:var(--muted);letter-spacing:1px}
+  #scoreRow{display:grid;grid-template-columns:repeat(11,1fr);gap:3px}
+  #scoreRow button{padding:6px 0;border-radius:6px;border:1px solid var(--line);background:#fff;
+    color:var(--text);font-size:11px;cursor:pointer;text-align:center;
+    transition:border-color .15s,color .15s,background .15s,transform 120ms cubic-bezier(0.23,1,0.32,1)}
+  #scoreRow button:hover,#scoreRow button.on{border-color:var(--accent);color:var(--accent);background:#eef3ff}
+  #scoreRow button.on{font-weight:700}
+  #scoreRow button:active{transform:scale(0.94)}
   #deletePin{margin-top:9px;width:100%;padding:8px;border-radius:8px;cursor:pointer;
     background:#fff;border:1px solid rgba(226,55,68,.35);color:#c62c38;font-size:12px}
   #limitMessage{display:none;margin-top:9px;color:#c62c38;font-size:11px}
@@ -82,8 +91,8 @@
     letter-spacing:2px;text-align:center;background:rgba(255,255,255,.8);padding:8px 18px;border-radius:20px;
     border:1px solid var(--line);box-shadow:0 4px 14px rgba(40,60,90,.08)}
   #hint b{color:var(--accent);font-weight:600}
-  /* view buttons */
-  #views{bottom:20px;left:24px;display:flex;gap:8px}
+  /* view buttons（面板搬左後移到右下，避免相撞） */
+  #views{bottom:20px;right:24px;display:flex;gap:8px}
   #views button{pointer-events:auto;background:rgba(255,255,255,.9);border:1px solid var(--line);
     color:var(--text);font-size:12px;padding:8px 14px;border-radius:9px;cursor:pointer;letter-spacing:1px;
     backdrop-filter:blur(10px);transition:.15s;box-shadow:0 4px 14px rgba(40,60,90,.06)}
@@ -130,13 +139,15 @@
     #jarvis .r1,#jarvis .r2{animation:none;transform:translate(-50%,-50%)}
   }
   @media (max-width:640px){
-    #backWrap{bottom:76px}
+    /* 返回全身鈕浮在底部抽屜上方；抽屜收合時貼近底部 */
+    #backWrap{bottom:calc(38vh + 22px)}
+    #panel.collapsed ~ #backWrap{bottom:88px}
     #panel{width:calc(100vw - 24px);left:12px;right:12px;top:auto;bottom:12px;
-      max-height:30vh;background:rgba(255,255,255,.92);padding:12px 13px 10px}
+      max-height:38vh;background:rgba(255,255,255,.92);padding:12px 13px 10px}
     #panel h2{margin-bottom:8px}
     #list{max-height:18vh}
     .row{padding:7px 9px}
-    #views{bottom:auto;top:64px;left:12px;gap:6px}
+    #views{bottom:auto;top:64px;left:12px;right:auto;gap:6px}
     #views button{padding:7px 11px;font-size:11.5px}
     #hint{display:none}
     #brand{left:14px;top:14px}
@@ -165,6 +176,8 @@
   <div id="editor">
     <h3 id="editorTitle">目前選取</h3>
     <div id="painTypes"></div>
+    <div id="scoreLabel">疼痛程度 NRS 0-10（再點一次取消）</div>
+    <div id="scoreRow"></div>
     <button id="deletePin">刪除此大頭針</button>
   </div>
   <div id="limitMessage">最多只能放置 20 根大頭針。</div>

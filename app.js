@@ -63,6 +63,9 @@ let mode = 'zone';
 // ---- zone mode: each muscle is a body region that fills on tap (paint-bucket) ----
 const STATE = {NONE:0, PAIN:1, RELIEF:2};
 const muscleState = new Int8Array(MUSCLES.length);   // 0/1/2 per muscle
+const muscleType = new Array(MUSCLES.length).fill(null);   // 疼痛類型 per zone（未設 = null）
+const muscleScore = new Array(MUSCLES.length).fill(null);  // NRS 0-10 per zone（未設 = null）
+let selectedZoneMi = null; // 目前選取的區塊（與大頭針選取互斥）
 const muscleVerts = MUSCLES.map(()=>[]);             // vertex indices per muscle (set on load)
 let bodyGeo = null;
 const C_BASE=[0.905,0.915,0.945], C_PAIN=[0.886,0.216,0.267], C_RELIEF=[0.122,0.682,0.404];
@@ -79,7 +82,7 @@ function paintMuscle(mi){
 const MAX_PINS = 20;
 const PAIN_TYPE_CONFIG = Object.freeze({
   defaultType:'酸痛',
-  options:Object.freeze(['刺痛','酸痛','壓痛','隱隱作痛','走路痛','舉手痛','轉動痛','伸直痛'])
+  options:Object.freeze(['刺痛','酸痛','壓痛','癢','隱隱作痛','走路痛','舉手痛','轉動痛','伸直痛'])
 });
 const PIN_COLORS = [
   0xe6194b,0x3cb44b,0xffa500,0x4363d8,0xf032e6,0x42d4f4,0xf58231,0x911eb4,0x469990,0xdcbeff,
@@ -292,14 +295,29 @@ function createPin(hit){
   group.position.copy(hit.point).addScaledVector(hit.normal,.006);
   group.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),hit.normal);
   scene.add(group);
-  pins.push({id,color,group,muscleIndex:hit.muscleIndex,painType:PAIN_TYPE_CONFIG.defaultType});
+  pins.push({id,color,group,muscleIndex:hit.muscleIndex,painType:PAIN_TYPE_CONFIG.defaultType,score:null});
   selectPin(id);
 }
 createPin.lastId=0;
 function selectPin(id){
   selectedPinId=id;
+  if(id!=null) selectedZoneMi=null;
   for(const pin of pins) pin.group.scale.setScalar(pin.id===id?1.28:1);
   renderList();
+}
+function selectZone(mi){
+  selectedZoneMi=mi; selectedPinId=null;
+  for(const pin of pins) pin.group.scale.setScalar(1);
+  renderList();
+}
+// 目前選取的標記（大頭針優先，其次區塊）
+function selectedTarget(){
+  if(selectedPinId!=null){
+    const pin=pins.find(candidate=>candidate.id===selectedPinId);
+    if(pin) return {kind:'pin',pin};
+  }
+  if(selectedZoneMi!=null && muscleState[selectedZoneMi]) return {kind:'zone',mi:selectedZoneMi};
+  return null;
 }
 addEventListener('pointermove', e=>{
   if(e.target.closest?.('.hud')){
@@ -311,7 +329,7 @@ addEventListener('pointermove', e=>{
     document.body.style.cursor='pointer';
     if(hit.pinId){
       const pin=pins.find(candidate=>candidate.id===hit.pinId), M=MUSCLES[pin.muscleIndex];
-      tooltip.textContent = `#${pin.id} ${M[0]} · ${pin.painType}`;
+      tooltip.textContent = `#${pin.id} ${M[0]} · ${pin.painType}${pin.score!=null?` · ${pin.score}`:''}`;
     } else {
       const M=MUSCLES[hit.muscleIndex];
       tooltip.textContent = M[0] + (M[1]!=='中'?`（${M[1]}）`:'');
@@ -335,6 +353,13 @@ addEventListener('pointerup', e=>{
   if(mode==='zone'){
     const mi = hit.muscleIndex;
     muscleState[mi] = (muscleState[mi]+1)%3;  // none → pain → relief → none
+    if(muscleState[mi]===STATE.NONE){
+      muscleType[mi]=null; muscleScore[mi]=null;
+      if(selectedZoneMi===mi) selectedZoneMi=null;
+    } else {
+      selectedZoneMi=mi; selectedPinId=null;
+      for(const pin of pins) pin.group.scale.setScalar(1);
+    }
     paintMuscle(mi);
     renderList();
     focusOn(mi);   // jarvis focus: cinematic zoom + hologram on the tapped zone
@@ -353,10 +378,25 @@ for(const type of PAIN_TYPE_CONFIG.options){
   const button=document.createElement('button');
   button.dataset.type=type; button.textContent=type;
   button.onclick=()=>{
-    const pin=pins.find(candidate=>candidate.id===selectedPinId); if(!pin) return;
-    pin.painType=type; renderList();
+    const target=selectedTarget(); if(!target) return;
+    if(target.kind==='pin') target.pin.painType=type;
+    else muscleType[target.mi]=type;
+    renderList();
   };
   painTypesEl.appendChild(button);
+}
+// NRS 疼痛程度 0-10：一排緊湊分數鈕，再點同分 = 取消不填
+const scoreRowEl = document.getElementById('scoreRow');
+for(let n=0;n<=10;n++){
+  const button=document.createElement('button');
+  button.dataset.score=n; button.textContent=n;
+  button.onclick=()=>{
+    const target=selectedTarget(); if(!target) return;
+    if(target.kind==='pin') target.pin.score = target.pin.score===n?null:n;
+    else muscleScore[target.mi] = muscleScore[target.mi]===n?null:n;
+    renderList();
+  };
+  scoreRowEl.appendChild(button);
 }
 const EMPTY_TEXT = {
   zone:'點選身體任一部位標記疼痛。<br>再點一下 = 已緩解，第三下 = 清除。',
@@ -368,30 +408,52 @@ function renderList(showLimit=false){
   limitEl.style.display = showLimit||(mode==='pin'&&pins.length>=MAX_PINS)?'block':'none';
   listEl.innerHTML = '';
   if(!zones.length && !pins.length) listEl.innerHTML = `<div id="empty">${EMPTY_TEXT[mode]}</div>`;
+  const target=selectedTarget();
   for(const mi of zones){
     const M=MUSCLES[mi], s=muscleState[mi], side=M[1];
     const row=document.createElement('div'); row.className='row zone';
+    if(target?.kind==='zone' && target.mi===mi) row.classList.add('selected');
+    const parts=[];
+    if(side!=='中') parts.push(side);
+    parts.push(s===STATE.PAIN ? (muscleType[mi]||'疼痛') : '已緩解');
+    if(muscleScore[mi]!=null) parts.push(muscleScore[mi]);
     row.innerHTML = `<span class="swatch" style="background:${s===STATE.PAIN?'#e23744':'#1fae67'}"></span>
       <span class="nm">${M[0]}</span>
-      <span class="side">${side!=='中'?side+' · ':''}${s===STATE.PAIN?'疼痛':'已緩解'}</span>`;
+      <span class="side">${parts.join(' · ')}</span>`;
+    row.onclick=()=>selectZone(mi);
     listEl.appendChild(row);
   }
   for(const pin of pins){
     const M=MUSCLES[pin.muscleIndex], side=M[1];
     const row=document.createElement('div'); row.className='row';
     if(pin.id===selectedPinId) row.classList.add('selected');
+    const parts=[];
+    if(side!=='中') parts.push(side);
+    parts.push(pin.painType);
+    if(pin.score!=null) parts.push(pin.score);
     row.innerHTML = `<span class="swatch" style="background:#${pin.color.toString(16).padStart(6,'0')}"></span>
-      <span class="nm">#${pin.id} ${M[0]}</span><span class="side">${side!=='中'?side+' · ':''}${pin.painType}</span>`;
+      <span class="nm">#${pin.id} ${M[0]}</span><span class="side">${parts.join(' · ')}</span>`;
     row.onclick=()=>selectPin(pin.id);
     listEl.appendChild(row);
   }
-  const selected=pins.find(pin=>pin.id===selectedPinId);
-  editorEl.classList.toggle('visible',!!selected);
-  if(selected){
-    const M=MUSCLES[selected.muscleIndex];
-    document.getElementById('editorTitle').textContent=`目前選取：#${selected.id} ${M[0]}`;
+  editorEl.classList.toggle('visible',!!target);
+  if(target){
+    let title, curType, curScore;
+    if(target.kind==='pin'){
+      const M=MUSCLES[target.pin.muscleIndex];
+      title=`目前選取：#${target.pin.id} ${M[0]}`;
+      curType=target.pin.painType; curScore=target.pin.score;
+    } else {
+      const M=MUSCLES[target.mi];
+      title=`目前選取：${M[0]}${M[1]!=='中'?`（${M[1]}）`:''}`;
+      curType=muscleType[target.mi]; curScore=muscleScore[target.mi];
+    }
+    document.getElementById('editorTitle').textContent=title;
     document.querySelectorAll('#painTypes button').forEach(button=>
-      button.classList.toggle('on',button.dataset.type===selected.painType));
+      button.classList.toggle('on',button.dataset.type===curType));
+    scoreRowEl.querySelectorAll('button').forEach(button=>
+      button.classList.toggle('on',Number(button.dataset.score)===curScore));
+    document.getElementById('deletePin').style.display = target.kind==='pin'?'block':'none';
   }
 }
 document.getElementById('deletePin').onclick=()=>{
@@ -402,8 +464,9 @@ document.getElementById('deletePin').onclick=()=>{
 document.getElementById('clear').onclick = ()=>{
   exitFocus();
   for(let mi=0;mi<MUSCLES.length;mi++){ if(muscleState[mi]){ muscleState[mi]=STATE.NONE; paintMuscle(mi); } }
+  muscleType.fill(null); muscleScore.fill(null);
   for(const pin of pins) scene.remove(pin.group);
-  pins.length=0; selectedPinId=null;
+  pins.length=0; selectedPinId=null; selectedZoneMi=null;
   renderList();
 };
 
