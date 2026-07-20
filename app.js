@@ -129,6 +129,133 @@ loader.load('assets/body.glb', (gltf)=>{
   window.__bodyModel = model; window.__ready = true;
 }, undefined, (err)=>{ console.warn('model load failed', err); });
 
+// ---- jarvis focus: cinematic zoom onto a zone + hologram + HUD reticle ----
+const DEFAULT_TARGET = new THREE.Vector3(0, 1.02, 0);
+const DEFAULT_MIN_DIST = 2.6;
+const jarvisEl = document.getElementById('jarvis');
+const jarvisName = document.getElementById('jarvisName');
+const backBtn = document.getElementById('backFull');
+let focus = null; // {mi, holo, center, radius, normal}
+
+// hologram: fresnel rim + upward scanlines + subtle flicker (additive, over the red marks)
+const holoUniforms = { uTime:{value:0} };
+const holoMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+  uniforms:holoUniforms,
+  vertexShader:`
+    varying vec3 vN; varying vec3 vW;
+    void main(){
+      vN = normalize(normalMatrix * normal);
+      vec4 wp = modelMatrix * vec4(position + normal*0.002, 1.0);
+      vW = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader:`
+    uniform float uTime; varying vec3 vN; varying vec3 vW;
+    void main(){
+      vec3 base = vec3(0.306, 0.788, 1.0);            // #4ec9ff
+      float fres = pow(1.0 - abs(normalize(vN).z), 2.2);
+      float s = fract((vW.y - uTime*0.12) * 36.0);     // upward-flowing scanlines
+      float stripe = smoothstep(0.35, 0.5, s) * smoothstep(1.0, 0.8, s);
+      float flick = 0.93 + 0.07*sin(uTime*31.0)*sin(uTime*17.3);
+      float a = (fres*0.85 + stripe*0.22 + 0.08) * flick;
+      gl_FragColor = vec4(mix(base, vec3(0.78, 0.93, 1.0), fres), a);
+    }`
+});
+
+function buildHoloGeometry(mi){
+  const pos = bodyGeo.attributes.position, nor = bodyGeo.attributes.normal;
+  const idx = bodyGeo.index ? bodyGeo.index.array : null;
+  const triCount = (idx ? idx.length : pos.count) / 3;
+  const p = [], nrm = [];
+  for(let t=0; t<triCount; t++){
+    const a = idx?idx[t*3]:t*3, b = idx?idx[t*3+1]:t*3+1, c = idx?idx[t*3+2]:t*3+2;
+    if(vMus[a]===mi || vMus[b]===mi || vMus[c]===mi){
+      for(const vi of [a,b,c]){
+        p.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi));
+        nrm.push(nor.getX(vi), nor.getY(vi), nor.getZ(vi));
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(p,3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm,3));
+  return geo;
+}
+function zoneWorldInfo(mi){
+  const pos = bodyGeo.attributes.position, nor = bodyGeo.attributes.normal;
+  const wm = mainMesh.matrixWorld, nm = new THREE.Matrix3().getNormalMatrix(wm);
+  const box = new THREE.Box3(), v = new THREE.Vector3(), n = new THREE.Vector3(), avgN = new THREE.Vector3();
+  for(const vi of muscleVerts[mi]){
+    v.fromBufferAttribute(pos,vi).applyMatrix4(wm); box.expandByPoint(v);
+    n.fromBufferAttribute(nor,vi).applyMatrix3(nm); avgN.add(n);
+  }
+  const sphere = new THREE.Sphere(); box.getBoundingSphere(sphere);
+  return {center:sphere.center.clone(), radius:Math.max(sphere.radius,0.05), normal:avgN.normalize()};
+}
+// camera flight: gsap power3.inOut — controls stay usable (wheel zoom) after landing
+let camTweens = [];
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function flyTo(pos, target, dur=0.85){
+  if(REDUCED_MOTION) dur = 0;   // jump-cut instead of flight for motion-sensitive users
+  camTweens.forEach(t=>t.kill());
+  controls.enabled = false;
+  camTweens = [
+    gsap.to(camera.position, {x:pos.x, y:pos.y, z:pos.z, duration:dur, ease:'power3.inOut',
+      onComplete:()=>{ controls.enabled = true; }}),
+    gsap.to(controls.target, {x:target.x, y:target.y, z:target.z, duration:dur, ease:'power3.inOut'})
+  ];
+}
+function repaintAll(){
+  const c = bodyGeo.attributes.color;
+  for(let i=0;i<vMus.length;i++){
+    const rgb = colorFor(muscleState[vMus[i]]);
+    c.setXYZ(i, rgb[0], rgb[1], rgb[2]);
+  }
+  c.needsUpdate = true;
+}
+function focusOn(mi){
+  if(!bodyGeo || !mainMesh || typeof gsap === 'undefined') return;
+  if(focus && focus.mi !== mi){ mainMesh.remove(focus.holo); focus.holo.geometry.dispose(); focus = null; }
+  if(!focus){
+    const holo = new THREE.Mesh(buildHoloGeometry(mi), holoMat);
+    holo.renderOrder = 2;
+    mainMesh.add(holo);
+    focus = { mi, holo, ...zoneWorldInfo(mi) };
+  }
+  // rest of the body drops to flat grey (vertex colors — no transparency, phone-friendly)
+  const c = bodyGeo.attributes.color;
+  for(let i=0;i<vMus.length;i++) if(vMus[i]!==mi) c.setXYZ(i, 0.42, 0.46, 0.52);
+  c.needsUpdate = true;
+  paintMuscle(mi); // focused zone keeps its true pain/relief color under the hologram
+  const dir = focus.normal.clone();
+  dir.y = THREE.MathUtils.clamp(dir.y, -0.35, 0.55);
+  if(Math.hypot(dir.x, dir.z) < 0.25) dir.z += 0.6; // top/bottom-facing zones: approach from the front
+  dir.normalize();
+  const dist = THREE.MathUtils.clamp(focus.radius*4.1, 0.55, 4.5);
+  controls.minDistance = 0.3;
+  flyTo(focus.center.clone().addScaledVector(dir, dist), focus.center, 0.85);
+  const M = MUSCLES[mi];
+  jarvisName.textContent = M[0] + (M[1]!=='中' ? ` · ${M[1]}` : '');
+  jarvisEl.classList.add('show');
+  backBtn.classList.add('show');
+}
+function exitFocus(fly=true){
+  if(!focus) return;
+  mainMesh.remove(focus.holo); focus.holo.geometry.dispose(); focus = null;
+  repaintAll();
+  controls.minDistance = DEFAULT_MIN_DIST;
+  jarvisEl.classList.remove('show');
+  backBtn.classList.remove('show');
+  if(fly){
+    const v = document.querySelector('#views button.on')?.dataset.v || 'front';
+    const p = viewPos[v];
+    flyTo(new THREE.Vector3(p[0],p[1],p[2]), DEFAULT_TARGET.clone(), 0.9);
+  }
+}
+backBtn.onclick = ()=>exitFocus();
+window.__dbg3d = { camera, controls, focusInfo:()=>focus && {mi:focus.mi, radius:focus.radius, center:focus.center.toArray()} };
+
 // ---- interaction ----
 const ray = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -203,15 +330,16 @@ addEventListener('pointerup', e=>{
   if(moved > (wasTouch?12:6)) return; // finger wobble tolerance; a real drag = rotate, not mark
   setPointer(e);
   const hit = pick();
-  if(!hit) return;
+  if(!hit){ if(mode==='zone') exitFocus(); return; }   // tap empty space = fly back to full body
   if(hit.pinId){ selectPin(hit.pinId); return; }   // tapping a pin selects it in either mode
   if(mode==='zone'){
     const mi = hit.muscleIndex;
     muscleState[mi] = (muscleState[mi]+1)%3;  // none → pain → relief → none
     paintMuscle(mi);
     renderList();
+    focusOn(mi);   // jarvis focus: cinematic zoom + hologram on the tapped zone
   } else {
-    createPin(hit);
+    createPin(hit);   // pin mode: no focus flight — pinning stays undisturbed
   }
 });
 
@@ -272,6 +400,7 @@ document.getElementById('deletePin').onclick=()=>{
   selectedPinId=pins.at(-1)?.id??null; selectPin(selectedPinId);
 };
 document.getElementById('clear').onclick = ()=>{
+  exitFocus();
   for(let mi=0;mi<MUSCLES.length;mi++){ if(muscleState[mi]){ muscleState[mi]=STATE.NONE; paintMuscle(mi); } }
   for(const pin of pins) scene.remove(pin.group);
   pins.length=0; selectedPinId=null;
@@ -283,10 +412,11 @@ const modeButtons = { zone:document.getElementById('modeZone'), pin:document.get
 const legendEl = document.getElementById('zoneLegend');
 const hintEl = document.getElementById('hint');
 const HINT_TEXT = {
-  zone:'拖曳 <b>旋轉</b> · 滾輪 <b>縮放</b> · 點擊部位 <b>標記疼痛</b>',
+  zone:'拖曳 <b>旋轉</b> · 點擊部位 <b>標記並聚焦</b> · 點空白 <b>返回全身</b>',
   pin:'拖曳 <b>旋轉</b> · 滾輪 <b>縮放</b> · 點擊身體 <b>插入大頭針</b>'
 };
 function setMode(next){
+  if(next==='pin') exitFocus();
   mode = next;
   modeButtons.zone.classList.toggle('on', mode==='zone');
   modeButtons.pin.classList.toggle('on', mode==='pin');
@@ -312,12 +442,11 @@ document.querySelectorAll('#views button').forEach(b=>{
     document.querySelectorAll('#views button').forEach(x=>x.classList.remove('on'));
     b.classList.add('on');
     controls.autoRotate=false;
+    exitFocus(false);
     const p = viewPos[b.dataset.v];
-    animateCam(new THREE.Vector3(p[0],p[1],p[2]));
+    flyTo(new THREE.Vector3(p[0],p[1],p[2]), DEFAULT_TARGET.clone());
   };
 });
-let camAnim=null;
-function animateCam(to){ camAnim={from:camera.position.clone(), to, t:0}; }
 
 // ---- resize ----
 addEventListener('resize', ()=>{
@@ -327,15 +456,19 @@ addEventListener('resize', ()=>{
 
 // ---- loop ----
 const clock = new THREE.Clock();
+const projV = new THREE.Vector3();
 function tick(){
   requestAnimationFrame(tick);
   const dt = clock.getDelta();
   ring.rotation.z += dt*0.4; ring2.rotation.z -= dt*0.25;
-  if(camAnim){
-    camAnim.t = Math.min(1, camAnim.t + dt*1.8);
-    const e = 1-Math.pow(1-camAnim.t,3);
-    camera.position.lerpVectors(camAnim.from, camAnim.to, e);
-    if(camAnim.t>=1) camAnim=null;
+  holoUniforms.uTime.value = clock.elapsedTime;
+  if(focus){
+    // 3D→2D projection: pin the jarvis reticle onto the focused zone every frame
+    projV.copy(focus.center).project(camera);
+    if(projV.z < 1){
+      const x = (projV.x*0.5+0.5)*innerWidth, y = (-projV.y*0.5+0.5)*innerHeight;
+      jarvisEl.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+    }
   }
   controls.update();
   renderer.render(scene, camera);
